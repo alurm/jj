@@ -78,33 +78,6 @@ pub(crate) fn cmd_file_untrack(
     // Commit the working copy again so we can inform the user if paths couldn't be
     // untracked because they're not ignored.
     let (wc_tree_id, stats) = locked_ws.locked_wc().snapshot(&options)?;
-    if wc_tree_id != *new_commit.tree_id() {
-        let wc_tree = store.get_root_tree(&wc_tree_id)?;
-        let added_back = wc_tree.entries_matching(matcher.as_ref()).collect_vec();
-        if !added_back.is_empty() {
-            drop(locked_ws);
-            let path = &added_back[0].0;
-            let ui_path = workspace_command.format_file_path(path);
-            let message = if added_back.len() > 1 {
-                format!(
-                    "'{}' and {} other files are not ignored.",
-                    ui_path,
-                    added_back.len() - 1
-                )
-            } else {
-                format!("'{ui_path}' is not ignored.")
-            };
-            return Err(user_error_with_hint(
-                message,
-                "Files that are not ignored will be added back by the next command.
-Make sure they're ignored, then try again.",
-            ));
-        } else {
-            // This means there were some concurrent changes made in the working copy. We
-            // don't want to mix those in, so reset the working copy again.
-            locked_ws.locked_wc().reset(&new_commit)?;
-        }
-    }
     let num_rebased = tx.repo_mut().rebase_descendants()?;
     if num_rebased > 0 {
         writeln!(ui.status(), "Rebased {num_rebased} descendant commits")?;
