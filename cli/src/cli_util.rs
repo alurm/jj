@@ -652,6 +652,24 @@ impl CommandHelper {
                             "Updated working copy to fresh commit {}",
                             short_commit_hash(desired_wc_commit.id())
                         )?;
+
+                        // Updating a stale working copy bypasses the normal transaction
+                        // finishing path. Run that path now so a colocated Git worktree's
+                        // HEAD and index are updated to match the recovered working copy.
+                        #[cfg(feature = "git")]
+                        if workspace_command.working_copy_shared_with_git {
+                            let tx = workspace_command.start_transaction().into_inner();
+                            let git_import_export_lock =
+                                workspace_command.lock_git_import_export()?;
+                            workspace_command
+                                .finish_transaction(
+                                    ui,
+                                    tx,
+                                    "sync Git state after updating stale working copy",
+                                    &git_import_export_lock,
+                                )
+                                .await?;
+                        }
                     }
                 }
 

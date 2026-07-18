@@ -2498,6 +2498,60 @@ fn test_workspace_add_colocate_creates_git_worktree() {
 }
 
 #[test]
+fn test_workspace_update_stale_syncs_git_worktree() {
+    if skip_if_git_unavailable() {
+        return;
+    }
+
+    let test_env = TestEnvironment::default();
+    let primary_work_dir = test_env.work_dir("primary");
+    let secondary_work_dir = test_env.work_dir("secondary");
+
+    test_env
+        .run_jj_in(".", ["git", "init", "--colocate", "primary"])
+        .success();
+    primary_work_dir.write_file("file", "contents\n");
+    primary_work_dir.run_jj(["new"]).success();
+    primary_work_dir
+        .run_jj(["workspace", "add", "../secondary"])
+        .success();
+
+    let secondary_git_repo = git::open(secondary_work_dir.root());
+    let old_head_id = secondary_git_repo.head_id().unwrap().to_string();
+
+    // Rewriting the shared parent rebases the secondary workspace's working-copy
+    // commit, leaving that workspace stale.
+    primary_work_dir.write_file("file", "changed\n");
+    primary_work_dir.run_jj(["squash"]).success();
+    let expected_head_id = primary_work_dir
+        .run_jj(["log", "--no-graph", "-T", "commit_id", "-r", "secondary@-"])
+        .success()
+        .stdout
+        .into_raw();
+    assert_ne!(old_head_id, expected_head_id);
+
+    secondary_work_dir
+        .run_jj(["workspace", "update-stale"])
+        .success();
+
+    assert_eq!(
+        secondary_git_repo.head_id().unwrap().to_string(),
+        expected_head_id
+    );
+    let git_status = Command::new("git")
+        .args(["status", "--porcelain=v1"])
+        .current_dir(secondary_work_dir.root())
+        .output()
+        .unwrap();
+    assert!(git_status.status.success());
+    assert!(
+        git_status.stdout.is_empty(),
+        "Git index wasn't updated with HEAD: {}",
+        String::from_utf8_lossy(&git_status.stdout)
+    );
+}
+
+#[test]
 fn test_workspace_add_colocate_git_failure() {
     // This test requires git command
     if skip_if_git_unavailable() {
